@@ -1,191 +1,154 @@
-import { loadImageAndGetDataArray, rotateArray } from './helpers';
-import { MODE } from './types';
-import { controlColumn, wrapper } from './app.css';
-import { LedMatrix } from './components/LedMatrix';
-import { Button } from './components/Button';
-import { Layout } from './components/Layout';
-import { connectionInformation } from './index.css';
-import { Component, createMemo, createSignal, Show } from 'solid-js';
-import { useStore } from './store';
+import { type Component, createMemo, Show } from "solid-js";
+
+import { Layout } from "./components/layout/layout";
+import Sidebar from "./components/layout/sidebar";
+import { LedMatrix } from "./components/led-matrix";
+import { ScreenInfo } from "./components/screen-info";
+import { useStore } from "./contexts/store";
+import { useToast } from "./contexts/toast";
+import { loadImageAndGetDataArray, rotateArray } from "./helpers";
 
 export const App: Component = () => {
-  const store = useStore();
-  const [triggerClear, setTriggerClear] = createSignal(false);
+  const [store, actions] = useStore();
+  const { toast } = useToast();
 
-  const rotatedMatrix = createMemo(() =>
-    rotateArray(store!.indexMatrix(), store!.rotation())
-  );
+  const rotatedMatrix = createMemo(() => rotateArray(store.indexMatrix, store.rotation));
 
   const wsMessage = (
     event:
-      | 'persist'
-      | 'load'
-      | 'clear'
-      | 'mode'
-      | 'screen'
-      | 'led'
-      | 'persist-mode',
-    data?: any
+      | "persist"
+      | "load"
+      | "clear"
+      | "plugin"
+      | "screen"
+      | "led"
+      | "persist-plugin"
+      | "artnet"
+      | "brightness",
+    data?: Record<string, string | number> | { data: number[] },
   ) =>
-    store?.send(
+    actions.send(
       JSON.stringify({
         event,
         ...data,
-      })
+      }),
     );
 
-  const loadImage = () => {
+  const handleRotate = (turnRight = false) => {
+    const currentRotation = store.rotation || 0;
+    actions.setRotation((currentRotation + (turnRight ? 1 : -1) + 4) % 4);
+    actions.send(
+      JSON.stringify({
+        event: "rotate",
+        direction: turnRight ? "right" : "left",
+      }),
+    );
+  };
+
+  const handleLoadImage = () => {
     loadImageAndGetDataArray((data) => {
-      store?.setLeds(() => store?.indexMatrix().map((index) => data[index]));
-      wsMessage('screen', { data });
+      actions.setLeds(store.indexMatrix.map((index) => (data[index] ? 255 : 0)));
+      wsMessage("screen", { data });
     });
   };
 
-  const clear = () => {
-    store?.setLeds([...new Array(256).fill(0)]);
-    setTriggerClear(!triggerClear);
-    wsMessage('clear');
-
-    store?.toast(`Canvas cleared`, 1000);
+  const handleClear = () => {
+    actions?.setLeds([...new Array(256).fill(0)]);
+    wsMessage("clear");
+    toast(`Canvas cleared`, 1000);
   };
 
-  const rotate = (turnRight = false) => {
-    let currentRotation = store?.rotation() || 0;
-
-    currentRotation = turnRight
-      ? currentRotation > 3
-        ? 1
-        : currentRotation + 1
-      : currentRotation <= 0
-      ? 3
-      : currentRotation - 1;
-
-    store?.setRotation(currentRotation);
-
-    store?.send(
-      JSON.stringify({
-        event: 'rotate',
-        direction: turnRight ? 'right' : 'left',
-      })
-    );
+  const handlePersist = () => {
+    wsMessage("persist");
+    toast(`Saved current state`, 1500);
   };
 
-  const sendMode = (mode: MODE) => wsMessage('mode', { mode });
+  const handleLoad = () => {
+    wsMessage("load");
+    toast(`Saved state loaded`, 1500);
+  };
+
+  const handlePluginChange = (pluginId: number) => {
+    wsMessage("plugin", { plugin: pluginId });
+    toast("Mode changed", 1000);
+  };
+
+  const handleBrightnessChange = (value: number, shouldSend = false) => {
+    actions?.setBrightness(value);
+    if (shouldSend) {
+      wsMessage("brightness", { brightness: value });
+    }
+  };
+
+  const handleArtnetUniverseChange = (value: number, shouldSend = false) => {
+    actions?.setArtnetUniverse(value);
+    if (shouldSend) {
+      wsMessage("artnet", { universe: value });
+    }
+  };
+
+  const handlePersistPlugin = () => {
+    wsMessage("persist-plugin");
+    toast(`Current mode set as default`, 1500);
+  };
+
+  const renderLedMatrix = () => (
+    <div class="grid p-8 h-full justify-center items-center sm:p-4 sm:m-0">
+      <Show
+        when={store.plugin === 1 && !store.isActiveScheduler}
+        fallback={
+          <Show
+            when={!store.isActiveScheduler}
+            fallback={
+              <ScreenInfo>
+                <h2 class="text-4xl">Scheduler is running</h2>
+              </ScreenInfo>
+            }
+          >
+            <ScreenInfo>
+              <h2 class="text-4xl">A plugin is currently running</h2>
+              <p class="text-xl mt-2 text-gray-300">Select "Draw" to show the canvas.</p>
+            </ScreenInfo>
+          </Show>
+        }
+      >
+        <div
+          style={{
+            opacity: (store.brightness || 255) / 255,
+          }}
+        >
+          <LedMatrix
+            disabled={store.plugin !== 1}
+            data={store.leds || []}
+            indexData={rotatedMatrix()}
+            onSetLed={(data) => {
+              wsMessage("led", data);
+            }}
+            onSetMatrix={(data) => {
+              actions?.setLeds([...data]);
+            }}
+          />
+        </div>
+      </Show>
+    </div>
+  );
 
   return (
-    <Show
-      when={store?.connectionState() === 1}
-      fallback={
-        <Layout
-          content={
-            <div class={wrapper}>
-              <div class={connectionInformation}>
-                {store?.connectionStatus}...
-              </div>
-            </div>
-          }
-          footer={
-            <>
-              <a href="#/creator">creator</a>
-            </>
-          }
-        ></Layout>
+    <Layout
+      content={renderLedMatrix()}
+      sidebar={
+        <Sidebar
+          onRotate={handleRotate}
+          onLoadImage={handleLoadImage}
+          onClear={handleClear}
+          onPersist={handlePersist}
+          onLoad={handleLoad}
+          onPluginChange={handlePluginChange}
+          onBrightnessChange={handleBrightnessChange}
+          onArtnetChange={handleArtnetUniverseChange}
+          onPersistPlugin={handlePersistPlugin}
+        />
       }
-    >
-      <Layout
-        content={
-          <div class={wrapper}>
-            <div>
-              <LedMatrix
-                disabled={store?.mode() !== MODE.NONE}
-                data={store?.leds() || []}
-                indexData={rotatedMatrix()}
-                onSetLed={(data) => {
-                  wsMessage('led', data);
-                }}
-                onSetMatrix={(data) => {
-                  store?.setLeds([...data]);
-                }}
-              />
-            </div>
-          </div>
-        }
-        footer={
-          <>
-            <div class={controlColumn}>
-              <select
-                onChange={(e) => {
-                  const currentMode = e.currentTarget.value as MODE;
-                  store?.setMode(currentMode);
-                  sendMode(currentMode === 'draw' ? MODE.NONE : currentMode);
-
-                  store?.toast('Mode changed', 1000);
-                }}
-                value={store?.mode()}
-              >
-                <option value={MODE.NONE}>draw</option>
-                <option value={MODE.STARS}>stars</option>
-                <option value={MODE.LINES}>lines</option>
-                <option value={MODE.BREAKOUT}>breakout</option>
-                <option value={MODE.SNAKE}>snake</option>
-                <option value={MODE.GAMEOFLIFE}>game of life</option>
-                <option value={MODE.CIRCLE}>circle</option>
-                <option value={MODE.CLOCK}>clock</option>
-                <option value={MODE.CUSTOM}>custom</option>
-              </select>
-
-              <Button
-                onClick={() => {
-                  wsMessage('persist-mode');
-                  store?.toast(`Current mode set as default`, 1500);
-                }}
-              >
-                set as default
-              </Button>
-            </div>
-
-            <div class={controlColumn}>
-              <Button onClick={() => rotate(false)}>
-                <i class="fa-solid fa-rotate-left"></i>
-              </Button>
-              <Button onClick={() => rotate(true)}>
-                <i class="fa-solid fa-rotate-right"></i>
-              </Button>
-            </div>
-
-            <div class={controlColumn}>
-              {store?.mode() === MODE.NONE && (
-                <>
-                  <Button onClick={() => loadImage()}>
-                    <i class="fa-solid fa-file-import"></i>
-                  </Button>
-                  <Button onClick={clear}>
-                    <i class="fa-solid fa-trash"></i>
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      store?.toast(`Saved current state`, 1500);
-                      wsMessage('persist');
-                    }}
-                  >
-                    <i class="fa-solid fa-floppy-disk"></i>
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      store?.toast(`Saved state loaded`, 1500);
-                      wsMessage('load');
-                    }}
-                  >
-                    <i class="fa-solid fa-refresh"></i>
-                  </Button>
-                </>
-              )}
-
-              <a href="#/creator">creator</a>
-            </div>
-          </>
-        }
-      />
-    </Show>
+    />
   );
 };

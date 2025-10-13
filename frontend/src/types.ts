@@ -1,32 +1,45 @@
-import { Setter } from "solid-js";
+export enum SYSTEM_STATUS {
+  NONE = "draw",
+  WSBINARY = "wsbinary",
+  // SYSTEM
+  UPDATE = "update",
+  LOADING = "loading",
+}
 
-export enum MODE {
-  NONE = 'draw',
-  STARS = 'stars',
-  LINES = 'lines',
-  BREAKOUT = 'breakout',
-  SNAKE = 'snake',
-  GAMEOFLIFE = 'gameoflife',
-  CIRCLE = 'circle',
-  CLOCK = 'clock',
-  CUSTOM = 'custom',
-  UPDATE = 'update',
-  LOADING = 'loading',
+export interface ScheduleItem {
+  pluginId: number;
+  duration: number;
+}
+
+export interface StoreActions {
+  setIsActiveScheduler: (isActive: boolean) => void;
+  setRotation: (rotation: number) => void;
+  setPlugins: (plugins: []) => void;
+  setPlugin: (plugin: number) => void;
+  setBrightness: (brightness: number) => void;
+  setIndexMatrix: (indexMatrix: number[]) => void;
+  setLeds: (leds: number[]) => void;
+  setSystemStatus: (systemStatus: SYSTEM_STATUS) => void;
+  setSchedule: (items: ScheduleItem[]) => void;
+  setArtnetUniverse: (artnetUniverse: number) => void;
+  send: (message: string | ArrayBuffer) => void;
 }
 
 export interface Store {
-  rotation: () => number;
-  indexMatrix: () => number[];
-  leds: () => number[];
-  mode: () => MODE;
-
-  setRotation: Setter<number>;
-  setIndexMatrix: Setter<number[]>;
-  setLeds: Setter<number[]>;
-  setMode: Setter<MODE>;
-  send: (message: string) => void;
+  isActiveScheduler: boolean;
+  rotation: number;
+  brightness: number;
+  indexMatrix: number[];
+  leds: number[];
+  plugins: { id: number; name: string }[];
+  plugin: number;
+  artnetUniverse: number;
+  systemStatus: SYSTEM_STATUS;
   connectionState: () => number;
-
   connectionStatus?: string;
+  schedule: ScheduleItem[];
+}
+
+export interface IToastContext {
   toast: (text: string, duration: number) => void;
 }
